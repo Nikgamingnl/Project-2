@@ -1,17 +1,17 @@
 #include <Arduino.h>
-int ventileren = 0
-int water = 0
-int verwarmen = 0
-int vochtiger = 0
-int licht = 0
+int ventileren = 0;
+int water = 0;
+int verwarmen = 0;
+int vochtiger = 0;
+int licht = 0;
 #define BMES 2
 #define ESPCLK 4
 #define DPSDA 16
 #define ROENS 17
 #define MQS 26
 #define BVS 27
-#define HEATING PAD 13
-#define GROW LIGHT 32
+#define heatingpad 13
+#define GROWLIGHT 32
 #define HUMIDIFIER 12
 #define WATERPOMP 14
 #define INPUT1 23
@@ -21,15 +21,14 @@ int licht = 0
 #define ENABLEA 22
 #define ENABLEB 24
 
-void setup{
- Serial.begin(115200);
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3c);
-  display.clearDisplay();
+void setup() {
+
 }
-void loop{
+
+void loop(){
   if (ventileren == 1){
-  digitalWrite(input1, HIGH);
-  digitalWrite(input3, HIGH);
+  digitalWrite(INPUT1, HIGH);
+  digitalWrite(INPUT3, HIGH);
   }
   if (verwarmen == 1){
     digitalWrite (heatingpad, HIGH);
@@ -41,6 +40,6 @@ void loop{
     digitalWrite (WATERPOMP, HIGH);
   }
   if (licht == 1){
-    digitalWrite (WATERPOMP, HIGH);
+    digitalWrite (GROWLIGHT, HIGH);
   }
   }
