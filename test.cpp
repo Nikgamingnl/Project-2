@@ -31,12 +31,6 @@
 #define ENCODER_SW  27
 
 // Control Pins from main.cpp (remapped to available GPIO)
-#define BMES 2
-#define ESPCLK 4
-#define DPSDA 16
-#define ROENS 26
-#define MQS 17
-#define BVS 27
 #define heatingpad 13
 #define GROWLIGHT 32
 #define HUMIDIFIER 12
