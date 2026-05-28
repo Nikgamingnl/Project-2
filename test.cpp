@@ -1,0 +1,377 @@
+#include <esp_now.h>
+#include <WiFi.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+#include <Adafruit_BMP280.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Arduino.h>
+
+// =========================
+// Pin Definitions (Master_cam.ino leading)
+// =========================
+// Primary I2C Pins (For BME280)
+#define BME_SDA 21
+#define BME_SCL 22
+
+// Secondary I2C Pins (For OLED Display)
+#define OLED_SDA 25
+#define OLED_SCL 33
+
+#define SOIL_PIN 34
+#define MQ135_PIN 35
+
+// LED Strip Data Pin
+#define LED_STRIP_PIN 4
+
+// Rotary Encoder Pins
+#define ENCODER_CLK 14
+#define ENCODER_DT  26
+#define ENCODER_SW  27
+
+// Control Pins from main.cpp (remapped to available GPIO)
+#define BMES 2
+#define ESPCLK 4
+#define DPSDA 16
+#define ROENS 26
+#define MQS 17
+#define BVS 27
+#define heatingpad 13
+#define GROWLIGHT 32
+#define HUMIDIFIER 12
+#define WATERPOMP 14
+#define INPUT1 23
+#define INPUT2 21
+#define INPUT3 15
+#define INPUT4 5
+#define ENABLEA 22
+#define ENABLEB 24
+
+// OLED Screen Dimensions
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, OLED_RESET);
+
+// =========================
+// Receiver MAC Address
+// =========================
+uint8_t receiverAddress[] = {0xAC, 0xA7, 0x04, 0x26, 0x05, 0xB0};
+
+// =========================
+// Sensor & UI Variables
+// =========================
+Adafruit_BME280 bme;
+Adafruit_BMP280 bmp; // I2C
+
+// Menu State Machine
+enum MenuState { SELECT_PARAM, EDIT_PARAM };
+MenuState currentState = SELECT_PARAM;
+
+int currentMenuIndex = 0;
+const int TOTAL_PARAMS = 5;
+const char* paramNames[TOTAL_PARAMS] = {
+  "Temp Target", 
+  "Humid Target", 
+  "Soil Target", 
+  "CO2 Target",
+  "LED Strip"
+};
+
+// Target Values (Adjustable via Encoder)
+float targetTemp = 25.0;
+float targetHumid = 50.0;
+int targetSoil = 40;
+int targetCO2 = 400;
+bool ledStripState = false;
+
+// Control Variables from main.cpp
+int ventileren = 0;
+int water = 0;
+int verwarmen = 0;
+int vochtiger = 0;
+int licht = 0;
+
+// Encoder Tracking
+int lastClkState;
+unsigned long lastButtonPress = 0;
+
+// =========================
+// Structures for ESP-NOW
+// =========================
+typedef struct struct_message {
+  float temperature;
+  float humidity;
+  int soilMoisture;
+  int co2Level;
+} struct_message;
+
+struct_message sensorData;
+
+typedef struct struct_response {
+  char status[32];
+} struct_response;
+
+struct_response incomingResponse;
+esp_now_peer_info_t peerInfo;
+
+// Timing helpers
+unsigned long lastSendTime = 0;
+const unsigned long sendInterval = 5000;
+
+// =========================
+// Callbacks
+// =========================
+void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
+  Serial.print("Last Packet Send Status: ");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
+
+void OnDataRecv(const esp_now_recv_info *info, const uint8_t *incomingData, int len) {
+  memcpy(&incomingResponse, incomingData, sizeof(incomingResponse));
+  Serial.print("Response received: ");
+  Serial.println(incomingResponse.status);
+}
+
+// =========================
+// UI Display Function
+// =========================
+void updateDisplay() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  
+  display.setCursor(0, 0);
+  display.println("=== TARGET SETTINGS ===");
+  display.println("");
+
+  for (int i = 0; i < TOTAL_PARAMS; i++) {
+    if (i == currentMenuIndex) {
+      if (currentState == EDIT_PARAM) {
+        display.print("[>] "); 
+      } else {
+        display.print("> ");   
+      }
+    } else {
+      display.print("  ");
+    }
+    
+    display.print(paramNames[i]);
+    display.print(": ");
+    
+    // UI Rendering Logic per option
+    if (i == 0) display.print(targetTemp, 1);
+    else if (i == 1) display.print(targetHumid, 1);
+    else if (i == 2) display.print(targetSoil);
+    else if (i == 3) display.print(targetCO2);
+    else if (i == 4) display.print(ledStripState ? "ON" : "OFF");
+    
+    display.println();
+  }
+  display.display();
+}
+
+// =========================
+// Setup
+// =========================
+void setup() {
+  Serial.begin(115200);
+
+  // Initialize Encoder Pins
+  pinMode(ENCODER_CLK, INPUT_PULLUP);
+  pinMode(ENCODER_DT, INPUT_PULLUP);
+  pinMode(ENCODER_SW, INPUT_PULLUP);
+  lastClkState = digitalRead(ENCODER_CLK);
+
+  // Initialize LED pin as output
+  pinMode(LED_STRIP_PIN, OUTPUT);
+  digitalWrite(LED_STRIP_PIN, LOW);
+
+  // Initialize Control Pins from main.cpp
+  pinMode(MQS, INPUT);
+  pinMode(DPSDA, INPUT);
+  pinMode(BVS, INPUT);
+  pinMode(INPUT1, OUTPUT);
+  pinMode(INPUT3, OUTPUT);
+  pinMode(heatingpad, OUTPUT);
+  pinMode(GROWLIGHT, OUTPUT);
+  pinMode(HUMIDIFIER, OUTPUT);
+  pinMode(WATERPOMP, OUTPUT);
+  pinMode(ENABLEA, OUTPUT);
+  pinMode(ENABLEB, OUTPUT);
+
+  // Start Default I2C Bus for BME280
+  Wire.begin(BME_SDA, BME_SCL);
+
+  // Start Second I2C Bus for OLED Screen
+  Wire1.begin(OLED_SDA, OLED_SCL);
+
+  // Initialize OLED using Wire1
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
+    Serial.println("OLED failed to initialize on Wire1");
+  }
+
+  // Initialize BME280 using standard Wire
+  bool bmeStatus = bme.begin(0x76, &Wire);
+  if (!bmeStatus) bmeStatus = bme.begin(0x77, &Wire);
+  if (!bmeStatus) {
+    Serial.println("Could not find BME280 sensor!");
+  }
+
+  // Initialize BMP280 using standard Wire
+  unsigned int bmpStatus = bmp.begin();
+  if (!bmpStatus) {
+    Serial.println("Could not find a valid BMP280 sensor, check wiring!");
+    Serial.print("SensorID was: 0x"); Serial.println(bmp.sensorID(),16);
+  } else {
+    bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,
+                    Adafruit_BMP280::SAMPLING_X2,
+                    Adafruit_BMP280::SAMPLING_X16,
+                    Adafruit_BMP280::FILTER_X16,
+                    Adafruit_BMP280::STANDBY_MS_500);
+  }
+
+  // Initialize WiFi & ESP-NOW
+  WiFi.mode(WIFI_STA);
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+
+  esp_now_register_send_cb(OnDataSent);
+  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+
+  memcpy(peerInfo.peer_addr, receiverAddress, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Failed to add peer");
+    return;
+  }
+
+  updateDisplay();
+  Serial.println("Setup complete!");
+}
+
+// =========================
+// Main Loop
+// =========================
+void loop() {
+  
+  // 1. Read Encoder Rotation
+  int currentClkState = digitalRead(ENCODER_CLK);
+  
+  if (currentClkState != lastClkState && currentClkState == LOW) {
+    bool clockwise = (digitalRead(ENCODER_DT) != currentClkState);
+    
+    if (currentState == SELECT_PARAM) {
+      if (clockwise) {
+        currentMenuIndex = (currentMenuIndex + 1) % TOTAL_PARAMS;
+      } else {
+        currentMenuIndex = (currentMenuIndex - 1 + TOTAL_PARAMS) % TOTAL_PARAMS;
+      }
+    } 
+    else if (currentState == EDIT_PARAM) {
+      float increment = clockwise ? 1.0 : -1.0;
+      
+      switch(currentMenuIndex) {
+        case 0: targetTemp += (increment * 0.5); break; 
+        case 1: targetHumid += increment; break;
+        case 2: targetSoil = constrain(targetSoil + (int)increment, 0, 100); break;
+        case 3: targetCO2 = constrain(targetCO2 + ((int)increment * 10), 0, 2000); break; 
+        case 4: 
+          ledStripState = !ledStripState; 
+          digitalWrite(LED_STRIP_PIN, ledStripState ? HIGH : LOW);
+          break;
+      }
+    }
+    updateDisplay();
+  }
+  lastClkState = currentClkState;
+
+  // 2. Read Encoder Button Click
+  if (digitalRead(ENCODER_SW) == LOW) {
+    if (millis() - lastButtonPress > 250) { 
+      if (currentState == SELECT_PARAM) {
+        currentState = EDIT_PARAM;
+      } else {
+        currentState = SELECT_PARAM;
+      }
+      updateDisplay();
+      lastButtonPress = millis();
+    }
+  }
+
+  // 3. Handle Sensor Reading & Control Logic
+  if (millis() - lastSendTime >= sendInterval) {
+    lastSendTime = millis();
+
+    sensorData.temperature = bme.readTemperature();
+    sensorData.humidity = bme.readHumidity();
+
+    int rawSoil = analogRead(SOIL_PIN);
+    sensorData.soilMoisture = map(rawSoil, 3200, 1200, 0, 100);
+    sensorData.soilMoisture = constrain(sensorData.soilMoisture, 0, 100);
+
+    sensorData.co2Level = analogRead(MQ135_PIN);
+
+    Serial.println("------ SENSOR DATA ------");
+    Serial.print("Temperature: "); Serial.print(sensorData.temperature); Serial.println(" °C");
+    Serial.print("Humidity: ");    Serial.print(sensorData.humidity);    Serial.println(" %");
+    Serial.print("Soil Moisture: "); Serial.print(sensorData.soilMoisture); Serial.println(" %");
+    Serial.print("CO2 Level: ");    Serial.println(sensorData.co2Level);
+    Serial.print("LED Strip State: "); Serial.println(ledStripState ? "ON" : "OFF");
+
+    // BMP280 readings (if available)
+    Serial.print("BMP280 Temperature: ");
+    Serial.print(bmp.readTemperature());
+    Serial.println(" *C");
+    Serial.print("BMP280 Pressure: ");
+    Serial.print(bmp.readPressure());
+    Serial.println(" Pa");
+
+    esp_err_t result = esp_now_send(receiverAddress, (uint8_t *)&sensorData, sizeof(sensorData));
+    
+    if (result == ESP_OK) {
+      Serial.println("Data sent successfully");
+    } else {
+      Serial.println("Error sending data");
+    }
+    Serial.println("-------------------------");
+  }
+
+  // 4. Control Logic from main.cpp
+  if (digitalRead(MQS) == HIGH) {
+    digitalWrite(INPUT1, HIGH);
+    digitalWrite(INPUT3, HIGH);
+  } else {  
+    digitalWrite(INPUT1, LOW);
+    digitalWrite(INPUT3, LOW);
+  }
+
+  if (verwarmen == 1) {
+    digitalWrite(heatingpad, HIGH);
+  } else {
+    digitalWrite(heatingpad, LOW);
+  }
+
+  if (vochtiger == 1) {
+    digitalWrite(HUMIDIFIER, HIGH);
+  } else {
+    digitalWrite(HUMIDIFIER, LOW);
+  }
+
+  if (water == 1) {
+    digitalWrite(WATERPOMP, HIGH);
+  } else {
+    digitalWrite(WATERPOMP, LOW);
+  }
+
+  if (licht == 1) {
+    digitalWrite(GROWLIGHT, HIGH);
+  } else {
+    digitalWrite(GROWLIGHT, LOW);
+  }
+}
