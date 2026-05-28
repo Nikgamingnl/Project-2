@@ -14,18 +14,21 @@
 #define BME_SCL 22
 
 // Secondary I2C Pins (For OLED Display)
-#define OLED_SDA 19
-#define OLED_SCL 18
+#define OLED_SDA 25
+#define OLED_SCL 33
 
 #define SOIL_PIN 34
 #define MQ135_PIN 35
 
+// LED Strip Data Pin
+#define LED_STRIP_PIN 4
+
 // Rotary Encoder Pins
-#define ENCODER_CLK 25
+#define ENCODER_CLK 14
 #define ENCODER_DT  26
 #define ENCODER_SW  27
 
-// OLED Screen Dimensions (Passed Wire1 instead of Wire)
+// OLED Screen Dimensions
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET    -1
@@ -46,14 +49,21 @@ enum MenuState { SELECT_PARAM, EDIT_PARAM };
 MenuState currentState = SELECT_PARAM;
 
 int currentMenuIndex = 0;
-const int TOTAL_PARAMS = 4;
-const char* paramNames[TOTAL_PARAMS] = {"Temp Target", "Humid Target", "Soil Target", "CO2 Target"};
+const int TOTAL_PARAMS = 5; // Increased to 5 for the LED Strip
+const char* paramNames[TOTAL_PARAMS] = {
+  "Temp Target", 
+  "Humid Target", 
+  "Soil Target", 
+  "CO2 Target",
+  "LED Strip"
+};
 
 // Target Values (Adjustable via Encoder)
 float targetTemp = 25.0;
 float targetHumid = 50.0;
 int targetSoil = 40;
 int targetCO2 = 400;
+bool ledStripState = false; // False = OFF, True = ON
 
 // Encoder Tracking
 int lastClkState;
@@ -122,10 +132,12 @@ void updateDisplay() {
     display.print(paramNames[i]);
     display.print(": ");
     
+    // UI Rendering Logic per option
     if (i == 0) display.print(targetTemp, 1);
     else if (i == 1) display.print(targetHumid, 1);
     else if (i == 2) display.print(targetSoil);
     else if (i == 3) display.print(targetCO2);
+    else if (i == 4) display.print(ledStripState ? "ON" : "OFF");
     
     display.println();
   }
@@ -143,6 +155,10 @@ void setup() {
   pinMode(ENCODER_DT, INPUT_PULLUP);
   pinMode(ENCODER_SW, INPUT_PULLUP);
   lastClkState = digitalRead(ENCODER_CLK);
+
+  // Initialize LED pin as output
+  pinMode(LED_STRIP_PIN, OUTPUT);
+  digitalWrite(LED_STRIP_PIN, LOW); // Start turned off
 
   // Start Default I2C Bus for BME280
   Wire.begin(BME_SDA, BME_SCL);
@@ -211,6 +227,11 @@ void loop() {
         case 1: targetHumid += increment; break;
         case 2: targetSoil = constrain(targetSoil + (int)increment, 0, 100); break;
         case 3: targetCO2 = constrain(targetCO2 + ((int)increment * 10), 0, 2000); break; 
+        case 4: 
+          // Flips the boolean state when rotated in either direction
+          ledStripState = !ledStripState; 
+          digitalWrite(LED_STRIP_PIN, ledStripState ? HIGH : LOW);
+          break;
       }
     }
     updateDisplay();
@@ -248,6 +269,7 @@ void loop() {
     Serial.print("Humidity: ");    Serial.print(sensorData.humidity);    Serial.println(" %");
     Serial.print("Soil Moisture: "); Serial.print(sensorData.soilMoisture); Serial.println(" %");
     Serial.print("CO2 Level: ");    Serial.println(sensorData.co2Level);
+    Serial.print("LED Strip State: "); Serial.println(ledStripState ? "ON" : "OFF");
 
     esp_err_t result = esp_now_send(receiverAddress, (uint8_t *)&sensorData, sizeof(sensorData));
     
