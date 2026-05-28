@@ -5,30 +5,7 @@
 #include <Adafruit_SSD1306.h>
 
 // IR Receiver pins
-static const uint8_t IR_PIN = 17;   // IR receiver OUT pin (replaces hitpin)
-static const uint8_t IR_TX_PIN = 5; // IR LED (through resistor + transistor if possible)
-static const uint8_t IR_STATUS_LED = 27; // Optional status LED for IR activity
 
-// Ring buffer for IR pulse data
-static const uint8_t BUF_SIZE = 64;
-volatile uint32_t pulseDurationUs[BUF_SIZE];
-volatile uint8_t pulseState[BUF_SIZE];
-volatile uint8_t writeIndex = 0;
-volatile uint8_t readIndex = 0;
-volatile uint32_t lastChangeUs = 0;
-
-// Button and LED state tracking
-volatile bool irLedOn = false;
-volatile uint32_t irLedOnTimeMs = 0;
-static const uint32_t IR_LED_DURATION_MS = 500;  // LED stays on for 500ms when signal received
-
-// LEDC settings for 38 kHz carrier
-static const uint8_t LEDC_CHANNEL = 0;
-static const uint32_t LEDC_FREQ = 38000;
-static const uint8_t LEDC_RES_BITS = 8;
-static const uint32_t LEDC_DUTY = 128; // 50% duty at 8-bit resolution
-#define vibratePin 23
-#define vibratepin2 19
 #define KY040_CLK 33
 #define KY040_DT 32
 #define KY040_SW 14
@@ -39,49 +16,21 @@ static const uint32_t LEDC_DUTY = 128; // 50% duty at 8-bit resolution
 #define DT_PIN 32
 // Pin definitions
 
-const int PIN_MAG  = 1;
-const int PIN_TRIGGER = 12;
+
 int right2 = 1;
 int left2 = 0;
-const int PIN_LED1    = 15;   // LED for 1 life
-const int PIN_LED2    = 2;  // LED for 2 lives
-const int PIN_LED3    = 4;  // LED for 3 lives
+
 int right = 1;
 int left = 0;
 int ja = 0;
 
-int lives = 0;
-int ammo = 0;
-int previousLives = -1;
-bool magazineInserted = true;
-bool prevMagazineInserted = false;
-int hitsec = 0;
-int dood = 0;
 
-// Magazine debounce timing
-unsigned long magazineChangeTime = 0;
-const unsigned long MAGAZINE_DEBOUNCE_MS = 500;  // 100ms delay for magazine disconnect/reconnect
 
-// Hit detection debouncing
-unsigned long lastHitTime = 0;
-const unsigned long HIT_DEBOUNCE_MS = 500;  // 500ms between hits (reduced for better responsiveness)
-bool prevHitState;
-unsigned long vibrationStartTime = 0;
-bool isVibrating = false;
-
-unsigned long vibration2StartTime = 0;
-bool isVibrating2 = false;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 // 'Selectie_Standoff', 128x64px
 
                                                       	
-// Timing variables
-unsigned long startMillis;
-unsigned long currentMillis;
-const unsigned long HIT_DURATION = 500;
-const unsigned long RELOAD_DURATION_PARTIAL = 300;  // For partial reload
-const unsigned long RELOAD_DURATION_EMPTY = 600;     // For empty reload
 
 // State machine
 enum State {
