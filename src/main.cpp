@@ -8,13 +8,7 @@
 #define BME_MOSI 11
 #define BME_CS 10
 
-#define SEALEVELPRESSURE_HPA (1013.25)
 
-Adafruit_BME280 bme; // I2C
-//Adafruit_BME280 bme(BME_CS); // hardware SPI
-//Adafruit_BME280 bme(BME_CS, BME_MOSI, BME_MISO, BME_SCK); // software SPI
-
-unsigned long delayTime;
 
 int ventileren = 0;
 int water = 0;
@@ -40,19 +34,7 @@ int licht = 0;
 
 void setup() {
 Serial.begin(9600);
-    Serial.println(F("BME280 test"));
 
-    if (! bme.begin(0x77, &Wire)) {
-        Serial.println("Could not find a valid BME280 sensor, check wiring!");
-        while (1);
-    }
-
-    Serial.println("-- Default Test --");
-    Serial.println("normal mode, 16x oversampling for all, filter off,");
-    Serial.println("0.5ms standby period");
-    delayTime = 5000;
-    
-   
 
     Serial.println();
   pinMode( MQS, INPUT);
@@ -65,8 +47,7 @@ pinMode( INPUT3, OUTPUT);
 
 void loop(){
       
-  printValues();
-  delay(delayTime);
+
   if (digitalRead(MQS) == HIGH){
   digitalWrite(INPUT1, HIGH);
   digitalWrite(INPUT3, HIGH);
@@ -89,29 +70,3 @@ void loop(){
   }
   }
 
-
-
-
-
-
-
-void printValues() {
-    Serial.print("Temperature = ");
-    Serial.print(bme.readTemperature());
-    Serial.println(" *C");
-
-    Serial.print("Pressure = ");
-
-    Serial.print(bme.readPressure() / 100.0F);
-    Serial.println(" hPa");
-
-    Serial.print("Approx. Altitude = ");
-    Serial.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
-    Serial.println(" m");
-
-    Serial.print("Humidity = ");
-    Serial.print(bme.readHumidity());
-    Serial.println(" %");
-
-    Serial.println();
-}
